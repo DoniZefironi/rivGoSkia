@@ -24,7 +24,7 @@ Rive-рантайм для Avalonia, рисующий через SkiaSharp.
 
 Пакет не опубликован на nuget.org, поэтому подключается из локальной папки.
 
-1. Положи `RiveSkia.Avalonia.0.2.0.nupkg` в любую папку, например `C:\nuget-local\`.
+1. Положи `RiveSkia.Avalonia.0.2.2.nupkg` в любую папку, например `C:\nuget-local\`.
 
 2. В своём проекте:
 
@@ -222,7 +222,7 @@ dotnet pack -c Release
 Проверка, что нативная часть упакована:
 
 ```powershell
-Copy-Item bin\Release\RiveSkia.Avalonia.0.2.0.nupkg $env:TEMP\pkg.zip -Force
+Copy-Item bin\Release\RiveSkia.Avalonia.0.2.2.nupkg $env:TEMP\pkg.zip -Force
 Expand-Archive $env:TEMP\pkg.zip -DestinationPath $env:TEMP\pkg -Force
 dir $env:TEMP\pkg\runtimes\win-x64\native
 ```
@@ -255,7 +255,7 @@ dir $env:TEMP\pkg\runtimes\win-x64\native
 
 **Шаг анимации привязан к реальному времени.** Внутри — fixed-timestep с аккумулятором: в ядро Rive всегда уходит стабильный шаг `1/60`, а таймер (4 мс, не ограничивает — упирается только в vsync монитора) лишь определяет, сколько таких шагов накопилось. Скачок долгого кадра не ускоряет и не дестабилизирует анимацию.
 
-**`Advance` и `Render` выполняются на разных потоках.** Подтверждено эмпирически (UI-поток Avalonia и поток компоновки — разные). Оба обращаются к одному нативному `ArtboardInstance`/`StateMachineInstance`, поэтому сериализованы через `lock` внутри `RiveScene`.
+**Все экземпляры `RiveControl` синхронизированы одним общим локом.** Подтверждено эмпирически: `Advance` (UI-поток) и `Render` (поток компоновки Avalonia) — разные потоки, а шимка (`rive_shim.cpp`) хранит геометрию/краски/шейдеры **всех** сцен процесса в общих `std::unordered_map` и общем `g_cb` — без синхронизации несколько одновременно анимируемых контролов ловили реальный краш (access violation в `rive_artboard_draw_fit`). Лок в `RiveScene` статический (на весь процесс, не на экземпляр) по этой причине — оборачивает `Advance`/`Render`/`Dispose`/входы/указатель у **любого** контрола. Плюс есть защита от use-after-free: композитор Avalonia может поставить `Render` в очередь на UI-потоке и выполнить чуть позже на потоке композиции — если контрол успевает `Dispose()`-нуться в этот промежуток, `Render` для него молча ничего не делает вместо обращения к уже освобождённым `_artboard`/`_sm`.
 
 ---
 

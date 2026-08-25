@@ -40,16 +40,27 @@ internal sealed class RiveScene : IDisposable
     }
 
     // Advance (UI-поток) и Render (поток компоновки Avalonia) — подтверждено эмпирически,
-    // это два разных потока (см. коммит/обсуждение) — оба трогают один и тот же нативный
-    // ArtboardInstance/StateMachineInstance без какой-либо защиты со стороны Rive core,
-    // поэтому сериализуем их здесь; Render также защищает состояние _canvas/_opacity,
-    // которое иначе могло бы быть частично перезаписано параллельным вызовом
-    readonly object _sync = new();
+    // это два разных потока — оба трогают нативный ArtboardInstance/StateMachineInstance
+    // без защиты со стороны Rive core. Лок статический (не на экземпляр!) — потому что
+    // шимка (rive_shim.cpp) хранит геометрию/краски/шейдеры ВСЕХ сцен в общих на процесс
+    // std::unordered_map (g_paths/g_paints/g_shaders) и общем g_cb. При нескольких
+    // одновременно анимируемых RiveControl их Advance/Render/Dispose гонялись бы за эти
+    // общие мапы из разных потоков без всякой синхронизации между собой — реальный краш
+    // (access violation внутри rive_artboard_draw_fit), воспроизведён и исправлен здесь.
+    static readonly object s_sync = new();
+
+    // Композитор Avalonia строит сцену на UI-потоке, а реально рисует чуть позже на
+    // потоке композиции — RiveDrawOp.Render может быть уже поставлен в очередь на момент,
+    // когда пользователь удаляет контрол и Dispose() успевает выполниться раньше. Лок сам
+    // по себе это не ловит (порядок вызовов правильный, объект просто уже мёртв к моменту
+    // выполнения) — нужна явная проверка, иначе Render словит use-after-free на _artboard/_sm.
+    bool _disposed;
 
     public void Advance(float dt)
     {
-        lock (_sync)
+        lock (s_sync)
         {
+            if (_disposed) return;
             if (_sm != IntPtr.Zero) Native.rive_sm_advance(_sm, dt);
             else Native.rive_artboard_advance(_artboard, dt);
         }
@@ -62,8 +73,9 @@ internal sealed class RiveScene : IDisposable
 
     public void Render(SKCanvas canvas, float w, float h)
     {
-        lock (_sync)
+        lock (s_sync)
         {
+            if (_disposed) return;
             _lastW = w;
             _lastH = h;
             _canvas = canvas;
@@ -80,33 +92,33 @@ internal sealed class RiveScene : IDisposable
     // менять ли курсор на "руку"). Без стейт-машины (её нет в файле) — молча ничего не делают.
     public bool PointerMove(float x, float y)
     {
-        lock (_sync)
+        lock (s_sync)
         {
-            if (_sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
+            if (_disposed || _sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
             return Native.rive_sm_pointer_move(_sm, _artboard, _lastW, _lastH, x, y) != 0;
         }
     }
     public bool PointerDown(float x, float y)
     {
-        lock (_sync)
+        lock (s_sync)
         {
-            if (_sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
+            if (_disposed || _sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
             return Native.rive_sm_pointer_down(_sm, _artboard, _lastW, _lastH, x, y) != 0;
         }
     }
     public bool PointerUp(float x, float y)
     {
-        lock (_sync)
+        lock (s_sync)
         {
-            if (_sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
+            if (_disposed || _sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
             return Native.rive_sm_pointer_up(_sm, _artboard, _lastW, _lastH, x, y) != 0;
         }
     }
     public bool PointerExit(float x, float y)
     {
-        lock (_sync)
+        lock (s_sync)
         {
-            if (_sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
+            if (_disposed || _sm == IntPtr.Zero || _lastW <= 0 || _lastH <= 0) return false;
             return Native.rive_sm_pointer_exit(_sm, _artboard, _lastW, _lastH, x, y) != 0;
         }
     }
@@ -114,11 +126,11 @@ internal sealed class RiveScene : IDisposable
     // ---------- входы стейт-машины ----------
     // Имя, которого нет в файле, — тихий no-op (get возвращает default), как и остальной
     // API библиотеки: опечатка в имени входа не должна ронять приложение.
-    public void SetBool(string name, bool value) { lock (_sync) Native.rive_sm_set_bool(_sm, name, value ? 1 : 0); }
-    public bool GetBool(string name) { lock (_sync) return Native.rive_sm_get_bool(_sm, name) != 0; }
-    public void SetNumber(string name, float value) { lock (_sync) Native.rive_sm_set_number(_sm, name, value); }
-    public float GetNumber(string name) { lock (_sync) return Native.rive_sm_get_number(_sm, name); }
-    public void FireTrigger(string name) { lock (_sync) Native.rive_sm_fire_trigger(_sm, name); }
+    public void SetBool(string name, bool value) { lock (s_sync) { if (!_disposed) Native.rive_sm_set_bool(_sm, name, value ? 1 : 0); } }
+    public bool GetBool(string name) { lock (s_sync) return !_disposed && Native.rive_sm_get_bool(_sm, name) != 0; }
+    public void SetNumber(string name, float value) { lock (s_sync) { if (!_disposed) Native.rive_sm_set_number(_sm, name, value); } }
+    public float GetNumber(string name) { lock (s_sync) return _disposed ? 0f : Native.rive_sm_get_number(_sm, name); }
+    public void FireTrigger(string name) { lock (s_sync) { if (!_disposed) Native.rive_sm_fire_trigger(_sm, name); } }
 
     // геометрия кэшируется по (id, version): ядро Rive переиспользует один и тот же
     // RenderPath (тот же id) для фигур с меняющейся геометрией, перезаписывая его через
@@ -223,10 +235,19 @@ internal sealed class RiveScene : IDisposable
 
     public void Dispose()
     {
-        foreach (var (_, path) in _paths.Values) path.Dispose();
-        _paths.Clear();
-        if (_sm != IntPtr.Zero) Native.rive_sm_destroy(_sm);
-        if (_artboard != IntPtr.Zero) Native.rive_artboard_instance_destroy(_artboard);
-        if (_ownsFile) _file.Dispose();
+        // Dispose тоже под общим локом: деструкторы ShimPath/ShimPaint/ShimShader на нативной
+        // стороне стирают записи из тех же общих g_paths/g_paints/g_shaders, что читают/пишут
+        // Advance/Render других живых сцен — без лока это была бы гонка на удаление из мапы.
+        lock (s_sync)
+        {
+            if (_disposed) return; // идемпотентно — и защищает от повторного разрушения
+            _disposed = true;
+
+            foreach (var (_, path) in _paths.Values) path.Dispose();
+            _paths.Clear();
+            if (_sm != IntPtr.Zero) Native.rive_sm_destroy(_sm);
+            if (_artboard != IntPtr.Zero) Native.rive_artboard_instance_destroy(_artboard);
+            if (_ownsFile) _file.Dispose();
+        }
     }
 }
