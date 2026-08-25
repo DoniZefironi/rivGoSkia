@@ -12,8 +12,13 @@ namespace RiveSkia;
 
 public class RiveControl : Control, IDisposable
 {
-    // сцена (владеет нативными ресурсами и логикой отрисовки)
+    // сцена (владеет нативными ресурсами и логикой отрисовки) — null, когда контрол смотрит
+    // на общий RiveSharedInstance вместо того, чтобы иметь свою собственную
     readonly RiveScene _scene;
+    // общий инстанс на несколько контролов — null в обычном режиме (свой _scene)
+    readonly RiveSharedInstance _shared;
+    // сцена, которую реально использовать для указателя/входов — своя или общая
+    RiveScene ActiveScene => _scene ?? _shared.Scene;
     // таймер (двигатель анимации)
     readonly DispatcherTimer _timer;
 
@@ -46,6 +51,20 @@ public class RiveControl : Control, IDisposable
         _timer.Start();
     }
 
+    // делит один живой артборд/стейт-машину с другими такими же RiveControl вместо того,
+    // чтобы заводить свой — сам не продвигает время (это уже делает таймер самого
+    // RiveSharedInstance, один раз на всех подписчиков) и, при совпадении размера с другим
+    // контролом на этот же инстанс в одном кадре, переиспользует уже готовую картинку кадра
+    // вместо повторного построения путей/красок. См. RiveSharedInstance про цену: контролы
+    // перестают быть независимыми — указатель/входы бьют по общей стейт-машине.
+    public RiveControl(RiveSharedInstance shared)
+    {
+        _shared = shared;
+        _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(4) };
+        _timer.Tick += OnTickShared;
+        _timer.Start();
+    }
+
     void OnTick(object sender, EventArgs e)
     {
         var now = _clock.Elapsed;
@@ -60,8 +79,14 @@ public class RiveControl : Control, IDisposable
         InvalidateVisual();
     }
 
+    // общий инстанс продвигает время сам за всех своих подписчиков — этому контролу остаётся
+    // только просить перерисоваться на той же частоте
+    void OnTickShared(object sender, EventArgs e) => InvalidateVisual();
+
     public override void Render(DrawingContext context)
-        => context.Custom(new RiveDrawOp(new Rect(Bounds.Size), _scene));
+        => context.Custom(_scene != null
+            ? new RiveDrawOp(new Rect(Bounds.Size), _scene)
+            : new RiveDrawOp(new Rect(Bounds.Size), _shared));
 
     // ---------- указатель ----------
     // Позиция уже приходит в тех же логических пикселях контрола, что и Bounds/DrawingContext —
@@ -70,39 +95,40 @@ public class RiveControl : Control, IDisposable
     {
         base.OnPointerMoved(e);
         var p = e.GetPosition(this);
-        if (_scene.PointerMove((float)p.X, (float)p.Y)) InvalidateVisual();
+        if (ActiveScene.PointerMove((float)p.X, (float)p.Y)) InvalidateVisual();
     }
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
         base.OnPointerPressed(e);
         var p = e.GetPosition(this);
-        if (_scene.PointerDown((float)p.X, (float)p.Y)) InvalidateVisual();
+        if (ActiveScene.PointerDown((float)p.X, (float)p.Y)) InvalidateVisual();
     }
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         base.OnPointerReleased(e);
         var p = e.GetPosition(this);
-        if (_scene.PointerUp((float)p.X, (float)p.Y)) InvalidateVisual();
+        if (ActiveScene.PointerUp((float)p.X, (float)p.Y)) InvalidateVisual();
     }
     protected override void OnPointerExited(PointerEventArgs e)
     {
         base.OnPointerExited(e);
         var p = e.GetPosition(this);
-        if (_scene.PointerExit((float)p.X, (float)p.Y)) InvalidateVisual();
+        if (ActiveScene.PointerExit((float)p.X, (float)p.Y)) InvalidateVisual();
     }
 
     // ---------- входы стейт-машины ----------
     // Имя входа берётся из редактора Rive (вкладка State Machine). Обращение к
     // несуществующему имени — не ошибка, просто ничего не происходит.
-    public void SetInputBool(string name, bool value) => _scene.SetBool(name, value);
-    public bool GetInputBool(string name) => _scene.GetBool(name);
-    public void SetInputNumber(string name, float value) => _scene.SetNumber(name, value);
-    public float GetInputNumber(string name) => _scene.GetNumber(name);
-    public void FireInputTrigger(string name) => _scene.FireTrigger(name);
+    // На общем RiveSharedInstance это бьёт по одной стейт-машине на всех подписчиков.
+    public void SetInputBool(string name, bool value) => ActiveScene.SetBool(name, value);
+    public bool GetInputBool(string name) => ActiveScene.GetBool(name);
+    public void SetInputNumber(string name, float value) => ActiveScene.SetNumber(name, value);
+    public float GetInputNumber(string name) => ActiveScene.GetNumber(name);
+    public void FireInputTrigger(string name) => ActiveScene.FireTrigger(name);
 
     // список входов стейт-машины (имя + тип) — чтобы не подбирать имена вслепую,
     // а спросить у самого файла, что в нём вообще есть
-    public IReadOnlyList<RiveInput> GetInputs() => _scene.GetInputs();
+    public IReadOnlyList<RiveInput> GetInputs() => ActiveScene.GetInputs();
 
     // автоматически освобождает нативные ресурсы и останавливает таймер, когда контрол
     // убирают из визуального дерева — без этого RiveScene и её нативный ArtboardInstance/
@@ -118,18 +144,24 @@ public class RiveControl : Control, IDisposable
         if (_disposed) return;
         _disposed = true;
         _timer.Stop();
+        // подписан ровно один из двух — отписка от второго безопасный no-op
         _timer.Tick -= OnTick;
-        _scene.Dispose();
+        _timer.Tick -= OnTickShared;
+        // общий RiveSharedInstance не наш — его освобождает тот, кто его создал,
+        // он обычно переживает любой один конкретный контрол
+        _scene?.Dispose();
         GC.SuppressFinalize(this);
     }
 
-    // держит ссылку на постоянную сценку и текущие границы
+    // держит ссылку на постоянную сценку (свою или общую) и текущие границы
     sealed class RiveDrawOp : ICustomDrawOperation
     {
         readonly RiveScene _scene;
+        readonly RiveSharedInstance _shared;
         public Rect Bounds { get; }
 
         public RiveDrawOp(Rect bounds, RiveScene scene) { Bounds = bounds; _scene = scene; }
+        public RiveDrawOp(Rect bounds, RiveSharedInstance shared) { Bounds = bounds; _shared = shared; }
 
         // зовётся когда авалония исполняет отрисовку
         public void Render(ImmediateDrawingContext context)
@@ -147,7 +179,15 @@ public class RiveControl : Control, IDisposable
 
             canvas.Save();
             canvas.ClipRect(new SKRect(0, 0, w, h));
-            _scene.Render(canvas, w, h);
+            if (_scene != null)
+            {
+                _scene.Render(canvas, w, h);
+            }
+            else
+            {
+                var img = _shared.GetImage(lease.GrContext, w, h);
+                if (img != null) canvas.DrawImage(img, 0, 0);
+            }
             canvas.Restore();
         }
 
