@@ -42,6 +42,10 @@ internal static class Native
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_sm_set_number(IntPtr s, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, float value);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern float rive_sm_get_number(IntPtr s, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_sm_fire_trigger(IntPtr s, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_sm_input_count(IntPtr s);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_sm_input_type(IntPtr s, int index);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_sm_input_name(IntPtr s, int index, byte[] buf, int cap);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_path_verb_count(int id);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_path_point_count(int id);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_path_fill_rule(int id);

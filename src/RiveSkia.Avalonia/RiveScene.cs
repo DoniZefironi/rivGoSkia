@@ -132,6 +132,33 @@ internal sealed class RiveScene : IDisposable
     public float GetNumber(string name) { lock (s_sync) return _disposed ? 0f : Native.rive_sm_get_number(_sm, name); }
     public void FireTrigger(string name) { lock (s_sync) { if (!_disposed) Native.rive_sm_fire_trigger(_sm, name); } }
 
+    // список входов — чтобы не гадать имена из редактора Rive, а спросить у самого файла
+    public IReadOnlyList<RiveInput> GetInputs()
+    {
+        lock (s_sync)
+        {
+            if (_disposed || _sm == IntPtr.Zero) return Array.Empty<RiveInput>();
+
+            int count = Native.rive_sm_input_count(_sm);
+            var result = new RiveInput[count];
+            var buf = new byte[256];
+            for (int i = 0; i < count; i++)
+            {
+                var kind = Native.rive_sm_input_type(_sm, i) switch
+                {
+                    0 => RiveInputKind.Bool,
+                    1 => RiveInputKind.Number,
+                    2 => RiveInputKind.Trigger,
+                    _ => RiveInputKind.Bool, // неизвестный тип ядра — не должно происходить на текущих файлах
+                };
+                int len = Native.rive_sm_input_name(_sm, i, buf, buf.Length);
+                var name = System.Text.Encoding.UTF8.GetString(buf, 0, Math.Min(len, buf.Length));
+                result[i] = new RiveInput(name, kind);
+            }
+            return result;
+        }
+    }
+
     // геометрия кэшируется по (id, version): ядро Rive переиспользует один и тот же
     // RenderPath (тот же id) для фигур с меняющейся геометрией, перезаписывая его через
     // rewind() — нативная сторона увеличивает version при любой такой мутации, поэтому
