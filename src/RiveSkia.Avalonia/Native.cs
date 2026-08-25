@@ -46,10 +46,7 @@ internal static class Native
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_sm_input_count(IntPtr s);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_sm_input_type(IntPtr s, int index);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_sm_input_name(IntPtr s, int index, byte[] buf, int cap);
-    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_path_verb_count(int id);
-    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_path_point_count(int id);
-    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_path_fill_rule(int id);
-    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_path_version(int id);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_path_info(int id, out int verbCount, out int pointCount, out int fillRule, out int version);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_path_copy(int id, byte[] verbs, float[] points);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_paint_get(int id, out int style, out uint color, out float th, out int join, out int cap, out int blend, out float feather, out int shaderId);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_shader_info(int id, out int type, out float a, out float b, out float c, out float d);

@@ -6,7 +6,18 @@ internal sealed class RiveScene : IDisposable
     readonly RiveFile _file;
     readonly bool _ownsFile; // true — файл создан этой сценой и её же и разрушается; false — общий, чужой
     readonly IntPtr _artboard, _sm;
-    readonly Dictionary<int, (int version, SKPath path)> _paths = new();
+    readonly Dictionary<int, PathEntry> _paths = new();
+
+    // Держит и SKPath, и переиспользуемые буферы под сырые verb/point данные — на кэш-промахе
+    // (частый случай для анимированной геометрии) буферы просто дозаполняются заново, а не
+    // аллоцируются с нуля каждый кадр; растут только когда путь стал больше, чем был.
+    sealed class PathEntry
+    {
+        public int Version = -1;
+        public SKPath Path;
+        public byte[] VerbBuf = Array.Empty<byte>();
+        public float[] PointBuf = Array.Empty<float>();
+    }
     readonly Stack<float> _opacityStack = new();
     readonly Native.Callbacks _cb;     // поле, а не локальная: держит делегаты от GC
 
@@ -166,34 +177,34 @@ internal sealed class RiveScene : IDisposable
     // замороженным на первом кадре и не перечитывающим неизменную геометрию каждый раз
     SKPath GetPath(int id)
     {
-        int version = Native.rive_path_version(id);
-        if (_paths.TryGetValue(id, out var cached) && cached.version == version)
-            return cached.path;
+        // один вызов вместо пяти (verb/point count, fill rule и version разом)
+        Native.rive_path_info(id, out int nv, out int np, out int fillRule, out int version);
 
-        var p = BuildPath(id);
-        if (cached.path != null) cached.path.Dispose(); // старая геометрия под этим id больше не нужна
-        _paths[id] = (version, p);
-        return p;
-    }
+        if (!_paths.TryGetValue(id, out var entry))
+        {
+            entry = new PathEntry();
+            _paths[id] = entry;
+        }
+        if (entry.Path != null && entry.Version == version)
+            return entry.Path;
 
-    SKPath BuildPath(int id)
-    {
-        int nv = Native.rive_path_verb_count(id);
-        int np = Native.rive_path_point_count(id);
-        var verbs = new byte[nv];
-        var pts = new float[np * 2];
-        Native.rive_path_copy(id, verbs, pts);
+        // буферы растут только когда путь стал больше, чем был раньше под этим id —
+        // на статичном/повторяющемся размере геометрии на кэш-промахе больше нет new[]
+        if (entry.VerbBuf.Length < nv) entry.VerbBuf = new byte[nv];
+        if (entry.PointBuf.Length < np * 2) entry.PointBuf = new float[np * 2];
+        Native.rive_path_copy(id, entry.VerbBuf, entry.PointBuf);
 
         var p = new SKPath
         {
-            FillType = Native.rive_path_fill_rule(id) == 1
-                ? SKPathFillType.EvenOdd : SKPathFillType.Winding
+            FillType = fillRule == 1 ? SKPathFillType.EvenOdd : SKPathFillType.Winding
         };
 
+        var verbs = entry.VerbBuf;
+        var pts = entry.PointBuf;
         int k = 0;
-        foreach (var v in verbs)
+        for (int i = 0; i < nv; i++)
         {
-            switch (v)
+            switch (verbs[i])
             {
                 case 0: p.MoveTo(pts[k * 2], pts[k * 2 + 1]); k++; break;
                 case 1: p.LineTo(pts[k * 2], pts[k * 2 + 1]); k++; break;
@@ -206,6 +217,9 @@ internal sealed class RiveScene : IDisposable
             }
         }
 
+        entry.Path?.Dispose(); // старая геометрия под этим id больше не нужна
+        entry.Path = p;
+        entry.Version = version;
         return p;
     }
 
@@ -270,7 +284,7 @@ internal sealed class RiveScene : IDisposable
             if (_disposed) return; // идемпотентно — и защищает от повторного разрушения
             _disposed = true;
 
-            foreach (var (_, path) in _paths.Values) path.Dispose();
+            foreach (var entry in _paths.Values) entry.Path?.Dispose();
             _paths.Clear();
             if (_sm != IntPtr.Zero) Native.rive_sm_destroy(_sm);
             if (_artboard != IntPtr.Zero) Native.rive_artboard_instance_destroy(_artboard);

@@ -393,6 +393,23 @@ RIVE_API int rive_path_fill_rule(int id)
 { auto it = g_paths.find(id); return it == g_paths.end() ? 0 : (int)it->second->rule; }
 RIVE_API int rive_path_version(int id)
 { auto it = g_paths.find(id); return it == g_paths.end() ? -1 : it->second->version; }
+
+// Объединяет verb_count/point_count/fill_rule/version в один вызов вместо четырёх —
+// на кэш-промахе экономит 3 перехода через границу C++/C# на каждый путь каждый кадр.
+RIVE_API void rive_path_info(int id, int* verbCount, int* pointCount, int* fillRule, int* version)
+{
+    auto it = g_paths.find(id);
+    if (it == g_paths.end())
+    {
+        *verbCount = 0; *pointCount = 0; *fillRule = 0; *version = -1;
+        return;
+    }
+    *verbCount = (int)it->second->raw.verbs().size();
+    *pointCount = (int)it->second->raw.points().size();
+    *fillRule = (int)it->second->rule;
+    *version = it->second->version;
+}
+
 RIVE_API void rive_path_copy(int id, uint8_t* verbs, float* points)
 {
     auto it = g_paths.find(id);
