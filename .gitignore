@@ -1,0 +1,21 @@
+# .NET build output
+bin/
+obj/
+*.user
+
+# нативная шимка — промежуточные артефакты сборки (регенерируются build.ps1)
+native/*.obj
+native/*.lib
+native/*.exp
+native/*.dll
+
+# NuGet-пакеты
+*.nupkg
+
+# IDE
+.vs/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
