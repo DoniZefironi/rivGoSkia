@@ -100,6 +100,10 @@ public class RiveControl : Control, IDisposable
     public float GetInputNumber(string name) => _scene.GetNumber(name);
     public void FireInputTrigger(string name) => _scene.FireTrigger(name);
 
+    // список входов стейт-машины (имя + тип) — чтобы не подбирать имена вслепую,
+    // а спросить у самого файла, что в нём вообще есть
+    public IReadOnlyList<RiveInput> GetInputs() => _scene.GetInputs();
+
     // автоматически освобождает нативные ресурсы и останавливает таймер, когда контрол
     // убирают из визуального дерева — без этого RiveScene и её нативный ArtboardInstance/
     // StateMachineInstance жили бы вечно, а таймер продолжал бы вхолостую тикать

@@ -1,6 +1,10 @@
 #include "rive/file.hpp"
 #include "rive/artboard.hpp"
 #include "rive/animation/state_machine_instance.hpp"
+#include "rive/animation/state_machine_input_instance.hpp"
+#include "rive/generated/animation/state_machine_bool_base.hpp"
+#include "rive/generated/animation/state_machine_number_base.hpp"
+#include "rive/generated/animation/state_machine_trigger_base.hpp"
 #include "rive/renderer.hpp"
 #include "rive/math/raw_path.hpp"
 #include "rive/layout.hpp"
@@ -348,6 +352,34 @@ RIVE_API void rive_sm_fire_trigger(void* s, const char* name)
     if (!s) return;
     auto* in = static_cast<rive::StateMachineInstance*>(s)->getTrigger(name);
     if (in) in->fire();
+}
+
+// ---------- перечисление входов ----------
+// Позволяет потребителю библиотеки узнать, какие входы вообще есть в файле
+// и какого они типа, вместо того чтобы угадывать имена из редактора Rive.
+RIVE_API int rive_sm_input_count(void* s)
+{ return s ? (int)static_cast<rive::StateMachineInstance*>(s)->inputCount() : 0; }
+
+// 0 = bool, 1 = number, 2 = trigger, -1 = индекс вне диапазона/неизвестный тип
+RIVE_API int rive_sm_input_type(void* s, int index)
+{
+    if (!s) return -1;
+    auto* in = static_cast<rive::StateMachineInstance*>(s)->input((size_t)index);
+    if (!in) return -1;
+    switch (in->inputCoreType())
+    {
+        case rive::StateMachineBoolBase::typeKey: return 0;
+        case rive::StateMachineNumberBase::typeKey: return 1;
+        case rive::StateMachineTriggerBase::typeKey: return 2;
+        default: return -1;
+    }
+}
+
+RIVE_API int rive_sm_input_name(void* s, int index, char* buf, int cap)
+{
+    if (!s) return 0;
+    auto* in = static_cast<rive::StateMachineInstance*>(s)->input((size_t)index);
+    return in ? copyString(in->name(), buf, cap) : 0;
 }
 
 // ---------- геометрия, краска, шейдеры ----------
