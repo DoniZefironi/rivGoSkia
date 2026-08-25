@@ -24,7 +24,7 @@ Rive-рантайм для Avalonia, рисующий через SkiaSharp.
 
 Пакет не опубликован на nuget.org, поэтому подключается из локальной папки.
 
-1. Положи `RiveSkia.Avalonia.0.4.0.nupkg` в любую папку, например `C:\nuget-local\`.
+1. Положи `RiveSkia.Avalonia.0.4.1.nupkg` в любую папку, например `C:\nuget-local\`.
 
 2. В своём проекте:
 
@@ -106,6 +106,11 @@ public class RiveControl : Control, IDisposable
     public void FireInputTrigger(string name);
     public IReadOnlyList<RiveInput> GetInputs();
 
+    public bool IsPaused { get; }
+    public void Pause();
+    public void Resume();
+    public int RenderEveryNthFrame { get; set; }
+
     public void Dispose();
 }
 
@@ -126,6 +131,13 @@ foreach (var input in control.GetInputs())
 ```
 
 `RiveControl` реализует `IDisposable` и освобождает нативные ресурсы автоматически при удалении из визуального дерева — вызывать `Dispose()` вручную обычно не нужно. После `Dispose()` контрол повторно не оживает, даже если его вернуть в дерево.
+
+При большом числе одновременно живых контролов (30+) библиотека не знает и не может знать, какие из них сейчас реально видны или важны — это знает только приложение. `Pause()`/`Resume()` и `RenderEveryNthFrame` — рычаг для этого случая:
+
+- `Pause()` останавливает контрол полностью (не продвигает время, не перерисовывает) — для того, что сейчас не видно вообще. `Resume()` возвращает как было, без скачка во времени за период простоя.
+- `RenderEveryNthFrame` (по умолчанию `1`) снижает частоту перерисовки, не трогая точность анимации — `Advance` всё равно идёт каждый реальный кадр (это дёшево и не сбивает тайминги триггеров), реже вызывается только сама перерисовка (самая дорогая часть). `RenderEveryNthFrame = 3` — рисовать раз в три кадра вместо каждого.
+
+Оба варианта не меняют состояние стейт-машины и не требуют `RiveSharedInstance` — контрол остаётся полностью независимым, просто реже (или временно вообще не) тратит на себя ресурсы.
 
 ### `RiveFile`
 
@@ -262,7 +274,7 @@ dotnet pack -c Release
 Проверка, что нативная часть упакована:
 
 ```powershell
-Copy-Item bin\Release\RiveSkia.Avalonia.0.4.0.nupkg $env:TEMP\pkg.zip -Force
+Copy-Item bin\Release\RiveSkia.Avalonia.0.4.1.nupkg $env:TEMP\pkg.zip -Force
 Expand-Archive $env:TEMP\pkg.zip -DestinationPath $env:TEMP\pkg -Force
 dir $env:TEMP\pkg\runtimes\win-x64\native
 ```

@@ -31,6 +31,43 @@ public class RiveControl : Control, IDisposable
     double _accumulator;
     const float FixedStep = 1f / 60f;
 
+    // во сколько раз реже перерисовывать относительно реального тика — 1 (по умолчанию) значит
+    // каждый кадр, 3 — раз в три. Advance всё равно идёт каждый реальный кадр по-честному
+    // (это дёшево и не влияет на точность срабатывания триггеров/таймингов) — экономится
+    // только перерисовка, самая дорогая часть. Приложение само решает, кому это нужно —
+    // библиотека не знает, что сейчас не в фокусе или вне экрана.
+    public int RenderEveryNthFrame
+    {
+        get => _renderEveryNthFrame;
+        set => _renderEveryNthFrame = Math.Max(1, value);
+    }
+    int _renderEveryNthFrame = 1;
+    int _frameSkip;
+
+    // полностью останавливает тик контрола — ни Advance, ни перерисовки, пока не позовут
+    // Resume(). На контроле, смотрящем на RiveSharedInstance, останавливает только его
+    // собственную перерисовку — сам общий инстанс продолжает жить для остальных подписчиков.
+    public bool IsPaused { get; private set; }
+
+    public void Pause()
+    {
+        if (_disposed || IsPaused) return;
+        IsPaused = true;
+        _timer.Stop();
+    }
+
+    public void Resume()
+    {
+        if (_disposed || !IsPaused) return;
+        IsPaused = false;
+        // без сброса первый тик после паузы попытался бы наверстать весь пропущенный простой
+        // одним аккумулированным скачком
+        _last = _clock.Elapsed;
+        _accumulator = 0;
+        _frameSkip = 0;
+        _timer.Start();
+    }
+
     bool _disposed;
 
     // загружает файл самостоятельно и владеет им единолично (обратная совместимость)
@@ -76,12 +113,23 @@ public class RiveControl : Control, IDisposable
             _scene.Advance(FixedStep);
             _accumulator -= FixedStep;
         }
-        InvalidateVisual();
+        if (++_frameSkip >= _renderEveryNthFrame)
+        {
+            _frameSkip = 0;
+            InvalidateVisual();
+        }
     }
 
     // общий инстанс продвигает время сам за всех своих подписчиков — этому контролу остаётся
-    // только просить перерисоваться на той же частоте
-    void OnTickShared(object sender, EventArgs e) => InvalidateVisual();
+    // только просить перерисоваться (на полной частоте или реже — см. RenderEveryNthFrame)
+    void OnTickShared(object sender, EventArgs e)
+    {
+        if (++_frameSkip >= _renderEveryNthFrame)
+        {
+            _frameSkip = 0;
+            InvalidateVisual();
+        }
+    }
 
     public override void Render(DrawingContext context)
         => context.Custom(_scene != null
