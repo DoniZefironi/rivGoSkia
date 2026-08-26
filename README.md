@@ -34,7 +34,7 @@ Rive-рантайм для Avalonia, рисующий через SkiaSharp.
 
 Пакет не опубликован на nuget.org, поэтому подключается из локальной папки.
 
-1. Положи `RiveSkia.Avalonia.0.4.1.nupkg` в любую папку, например `C:\nuget-local\`.
+1. Положи `RiveSkia.Avalonia.0.5.0.nupkg` в любую папку, например `C:\nuget-local\`.
 
 2. В своём проекте:
 
@@ -61,19 +61,17 @@ cd MyApp
 dotnet add package RiveSkia.Avalonia --source C:\nuget-local
 ```
 
-Положи `.riv` в папку `Assets` и пропиши копирование в `MyApp.csproj`:
+Положи `.riv` в папку `Assets` и встрой его в сборку как ресурс, в `MyApp.csproj`:
 
 ```xml
 <ItemGroup>
-  <None Include="Assets\teddy.riv" CopyToOutputDirectory="PreserveNewest" />
+  <AvaloniaResource Include="Assets\teddy.riv" />
 </ItemGroup>
 ```
 
 `MainWindow.axaml.cs`:
 
 ```csharp
-using System;
-using System.IO;
 using Avalonia.Controls;
 using RiveSkia;
 
@@ -83,11 +81,12 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        var path = Path.Combine(AppContext.BaseDirectory, "Assets", "teddy.riv");
-        Content = new RiveControl(path);
+        Content = new RiveControl { Source = "avares://MyApp/Assets/teddy.riv" };
     }
 }
 ```
+
+(Физический путь на диске тоже работает — `new RiveControl(path)` или `Source = path` — см. «Откуда что берётся».)
 
 Запуск:
 
@@ -101,7 +100,7 @@ dotnet run
 
 | Что | Откуда берётся | Как узнать |
 |---|---|---|
-| `rivPath` (путь к файлу) | Обычный путь на диске — не специфично для библиотеки, файл может лежать где угодно, не только в `Assets` проекта | — |
+| `rivPath` / `Source` (путь к файлу) | Физический путь на диске — где угодно, не только в `Assets` проекта — либо `avares://Сборка/путь/файл.riv` для файла, встроенного в сборку как `AvaloniaResource` | — |
 | `Width` / `Height` контрола | Обычные свойства **Avalonia**-контрола, ничем не отличаются от `Width`/`Height` любого другого `Control` — задаются в XAML, коде или растягиванием родительского layout-контейнера | — |
 | Как контент вписывается в `Width`×`Height` | Всегда по правилу `contain` с центрированием (как `object-fit: contain` в CSS): если пропорции контрола не совпадают с пропорциями артборда — по одной из осей будут пустые поля, а не растяжение или обрезка | — |
 | Входы стейт-машины (`Bool`/`Number`/`Trigger`) | Из **самого `.riv` файла** — их имена, типы и то, что они внутри анимации делают, задал дизайнер в редакторе Rive, на вкладке **State Machine → Inputs**. Библиотека не изобретает новые и не может — только читает/устанавливает то, что уже есть в файле | `control.GetInputs()` — вернёт реальный список из загруженного файла, не нужно смотреть в редактор или спрашивать дизайнера |
@@ -117,9 +116,13 @@ dotnet run
 ```csharp
 public class RiveControl : Control, IDisposable
 {
+    public RiveControl();
     public RiveControl(string rivPath);
     public RiveControl(RiveFile file);
     public RiveControl(RiveSharedInstance shared);
+
+    public static readonly StyledProperty<string> SourceProperty;
+    public string Source { get; set; }
 
     public void SetInputBool(string name, bool value);
     public bool GetInputBool(string name);
@@ -142,7 +145,25 @@ public readonly record struct RiveInput(string Name, RiveInputKind Kind);
 
 Контрол загружает файл, берёт нулевой артборд, запускает его стейт-машину по умолчанию (при её отсутствии — первую по индексу) и анимирует по таймеру. Содержимое вписывается в границы контрола по правилу `contain` с центрированием.
 
-Путь в `RiveControl(string rivPath)` — **физический файл на диске**. Схема `avares://` пока не поддерживается.
+`Source` — обычная `StyledProperty`, поэтому биндится и переключается на лету (не только задаётся один раз в конструкторе). Значение — либо физический путь на диске, либо `avares://Сборка/путь/файл.riv` для файла, встроенного в сборку как `AvaloniaResource`:
+
+```xml
+<ItemGroup>
+  <AvaloniaResource Include="Assets\teddy.riv" />
+</ItemGroup>
+```
+
+```xml
+<rive:RiveControl xmlns:rive="using:RiveSkia" Source="avares://MyApp/Assets/teddy.riv" />
+```
+
+```csharp
+var control = new RiveControl { Source = "avares://MyApp/Assets/teddy.riv" };
+...
+control.Source = @"C:\path\to\other.riv"; // сменить показываемый файл на лету
+```
+
+`RiveControl(string rivPath)` — сахар над `Source`, оставлен для краткости и обратной совместимости. Смена `Source` освобождает предыдущий загруженный файл сама — течи не возникает.
 
 Указатель мыши (наведение, нажатие, отпускание, уход курсора) автоматически прокидывается в стейт-машину — если файл содержит слушатели («listeners») на эти события, они сработают сами, без дополнительного кода. Координаты корректно пересчитываются из пикселей контрола в локальную систему артборда с учётом вписывания `contain`.
 
@@ -228,6 +249,7 @@ for (int i = 0; i < 50; i++)
 - Переиспользование одного распарсенного файла в нескольких контролах (`RiveFile`)
 - Расшаривание одного живого артборда/стейт-машины и кэш отрисованного кадра между несколькими контролами (`RiveSharedInstance`) — для множества одинаковых неинтерактивных копий
 - Ручной контроль частоты обновления и полная пауза отдельного контрола (`Pause`/`Resume`/`RenderEveryNthFrame`) — для сцен с десятками независимых контролов, часть которых сейчас не важна
+- `Source` как `StyledProperty` (биндится, меняется на лету) и файлы, встроенные в сборку через `avares://`
 
 ### Что пока нет
 
@@ -328,7 +350,7 @@ dotnet pack -c Release
 Проверка, что нативная часть упакована:
 
 ```powershell
-Copy-Item bin\Release\RiveSkia.Avalonia.0.4.1.nupkg $env:TEMP\pkg.zip -Force
+Copy-Item bin\Release\RiveSkia.Avalonia.0.5.0.nupkg $env:TEMP\pkg.zip -Force
 Expand-Archive $env:TEMP\pkg.zip -DestinationPath $env:TEMP\pkg -Force
 dir $env:TEMP\pkg\runtimes\win-x64\native
 ```
@@ -337,7 +359,6 @@ dir $env:TEMP\pkg\runtimes\win-x64\native
 
 ## Планы
 
-- `Source` как `StyledProperty` и поддержка `avares://`
 - Выбор артборда и стейт-машины по имени/индексу
 - Режимы наложения
 - Растровые изображения и меши
