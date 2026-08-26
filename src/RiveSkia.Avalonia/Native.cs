@@ -20,7 +20,10 @@ internal static class Native
         public FloatFn modulateOpacity;
     }
 
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void IdCallback(int id);
+
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_set_callbacks(Callbacks cb);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_set_path_destroyed_callback(IdCallback cb);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_file_load(byte[] b, int len);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_file_destroy(IntPtr f);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_artboard_instance(IntPtr f, int i);

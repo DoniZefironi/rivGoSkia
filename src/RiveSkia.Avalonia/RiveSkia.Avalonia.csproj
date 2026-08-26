@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>RiveSkia</RootNamespace>
     <PackageId>RiveSkia.Avalonia</PackageId>
-    <Version>0.6.0</Version>
+    <Version>0.6.1</Version>
   </PropertyGroup>
 
   <ItemGroup>
