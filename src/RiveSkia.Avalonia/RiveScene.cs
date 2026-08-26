@@ -72,6 +72,28 @@ internal sealed class RiveScene : IDisposable
     // (access violation внутри rive_artboard_draw_fit), воспроизведён и исправлен здесь.
     static readonly object s_sync = new();
 
+    // Ядро Rive регулярно заводит новый объект геометрии вместо переиспользования старого через
+    // rewind() — измерено напрямую: ~117 тысяч раз за 15 секунд на 15 одновременно открытых
+    // реальных файлах. Без этой очистки запись в _paths осталась бы висеть в кэше навсегда
+    // (её id больше никогда не встретится, а сама SKPath не освободится) — самый настоящий,
+    // а не гипотетический рост кэша. id глобально уникален на весь процесс, поэтому одной
+    // статической мапы id → владеющая сцена достаточно, чтобы единственный на процесс колбэк
+    // из ~ShimPath (не пересчитывается на каждый Render, как g_cb — может сработать в любой
+    // момент из любого потока) знал, откуда убрать запись.
+    static readonly Dictionary<int, RiveScene> s_pathOwners = new();
+    static readonly Native.IdCallback s_onPathDestroyed = OnPathDestroyed; // поле — держит делегат от GC
+
+    static RiveScene() { Native.rive_set_path_destroyed_callback(s_onPathDestroyed); }
+
+    static void OnPathDestroyed(int id)
+    {
+        lock (s_sync)
+        {
+            if (!s_pathOwners.Remove(id, out var scene)) return;
+            if (scene._paths.Remove(id, out var entry)) entry.Path?.Dispose();
+        }
+    }
+
     // Композитор Avalonia строит сцену на UI-потоке, а реально рисует чуть позже на
     // потоке композиции — RiveDrawOp.Render может быть уже поставлен в очередь на момент,
     // когда пользователь удаляет контрол и Dispose() успевает выполниться раньше. Лок сам
@@ -196,6 +218,9 @@ internal sealed class RiveScene : IDisposable
         {
             entry = new PathEntry();
             _paths[id] = entry;
+            // GetPath зовётся только из колбэков drawPath/clipPath внутри Render(), т.е. уже
+            // под s_sync — отдельный lock тут не нужен
+            s_pathOwners[id] = this;
         }
         if (entry.Path != null && entry.Version == version)
             return entry.Path;
@@ -296,7 +321,11 @@ internal sealed class RiveScene : IDisposable
             if (_disposed) return; // идемпотентно — и защищает от повторного разрушения
             _disposed = true;
 
-            foreach (var entry in _paths.Values) entry.Path?.Dispose();
+            foreach (var (id, entry) in _paths)
+            {
+                entry.Path?.Dispose();
+                s_pathOwners.Remove(id);
+            }
             _paths.Clear();
             if (_sm != IntPtr.Zero) Native.rive_sm_destroy(_sm);
             if (_artboard != IntPtr.Zero) Native.rive_artboard_instance_destroy(_artboard);

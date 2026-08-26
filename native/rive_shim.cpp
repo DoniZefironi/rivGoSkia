@@ -27,6 +27,11 @@ std::unordered_map<int, ShimPath*> g_paths;
 std::unordered_map<int, ShimPaint*> g_paints;
 std::unordered_map<int, ShimShader*> g_shaders;
 
+// вызывается из ~ShimPath, чтобы C# мог убрать свою кэш-запись (SKPath) — без этого кэш
+// путей в RiveScene растёт бесконечно, если ядро заводит новый объект геометрии вместо
+// переиспользования старого через rewind() (см. README → Известные особенности)
+void (*g_onPathDestroyed)(int) = nullptr;
+
 struct ShimShader : public rive::RenderShader
 {
     int id;
@@ -47,7 +52,11 @@ struct ShimPath : public rive::RenderPath
     rive::FillRule rule = rive::FillRule::nonZero;
 
     ShimPath() : id(g_nextId++) {}
-    ~ShimPath() override { g_paths.erase(id); }
+    ~ShimPath() override
+    {
+        if (g_onPathDestroyed) g_onPathDestroyed(id);
+        g_paths.erase(id);
+    }
 
     void touch() { ++version; }
 
@@ -393,6 +402,11 @@ RIVE_API int rive_sm_input_name(void* s, int index, char* buf, int cap)
 
 // ---------- геометрия, краска, шейдеры ----------
 RIVE_API void rive_set_callbacks(Callbacks cb) { g_cb = cb; }
+
+// регистрируется один раз на процесс (в отличие от rive_set_callbacks, который
+// перевызывается перед каждым Render) — вызывается из деструктора геометрии на любом
+// потоке, в любой момент, а не только во время отрисовки конкретной сцены
+RIVE_API void rive_set_path_destroyed_callback(void (*cb)(int)) { g_onPathDestroyed = cb; }
 
 // Объединяет verb_count/point_count/fill_rule/version в один вызов вместо четырёх —
 // на кэш-промахе экономит 3 перехода через границу C++/C# на каждый путь каждый кадр.
