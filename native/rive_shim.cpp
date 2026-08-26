@@ -256,13 +256,6 @@ RIVE_API void rive_sm_destroy(void* s)
 RIVE_API int rive_sm_advance(void* s, float dt)
 { return s ? (static_cast<rive::StateMachineInstance*>(s)->advanceAndApply(dt) ? 1 : 0) : 0; }
 
-RIVE_API void rive_artboard_draw(void* a, void* ctx)
-{
-    if (!a) return;
-    ShimRenderer r(ctx);
-    static_cast<rive::ArtboardInstance*>(a)->draw(&r);
-}
-
 RIVE_API void rive_artboard_draw_fit(void* a, void* ctx, float w, float h)
 {
     if (!a) return;
@@ -384,15 +377,6 @@ RIVE_API int rive_sm_input_name(void* s, int index, char* buf, int cap)
 
 // ---------- геометрия, краска, шейдеры ----------
 RIVE_API void rive_set_callbacks(Callbacks cb) { g_cb = cb; }
-
-RIVE_API int rive_path_verb_count(int id)
-{ auto it = g_paths.find(id); return it == g_paths.end() ? 0 : (int)it->second->raw.verbs().size(); }
-RIVE_API int rive_path_point_count(int id)
-{ auto it = g_paths.find(id); return it == g_paths.end() ? 0 : (int)it->second->raw.points().size(); }
-RIVE_API int rive_path_fill_rule(int id)
-{ auto it = g_paths.find(id); return it == g_paths.end() ? 0 : (int)it->second->rule; }
-RIVE_API int rive_path_version(int id)
-{ auto it = g_paths.find(id); return it == g_paths.end() ? -1 : it->second->version; }
 
 // Объединяет verb_count/point_count/fill_rule/version в один вызов вместо четырёх —
 // на кэш-промахе экономит 3 перехода через границу C++/C# на каждый путь каждый кадр.
