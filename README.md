@@ -251,9 +251,8 @@ RiveSkia/
 ├── native/                     нативная шимка (C++)
 │   ├── rive_shim.cpp
 │   └── build.ps1
-├── src/
-│   └── RiveSkia.Avalonia/      библиотека (C#)
-└── cs/RiveDemo/                демо-приложение
+└── src/
+    └── RiveSkia.Avalonia/      библиотека (C#)
 ```
 
 ### 1. Ядро Rive
