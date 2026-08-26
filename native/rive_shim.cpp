@@ -238,6 +238,15 @@ RIVE_API void* rive_artboard_instance(void* f, int i)
     auto ab = static_cast<rive::File*>(f)->artboardAt((size_t)i);
     return ab.release();
 }
+
+// по имени, заданному дизайнером в редакторе Rive — nullptr, если такого артборда нет
+RIVE_API void* rive_artboard_instance_named(void* f, const char* name)
+{
+    if (!f || !name) return nullptr;
+    auto ab = static_cast<rive::File*>(f)->artboardNamed(name);
+    return ab.release();
+}
+
 RIVE_API void rive_artboard_instance_destroy(void* a)
 { delete static_cast<rive::ArtboardInstance*>(a); }
 
@@ -249,6 +258,13 @@ RIVE_API void* rive_sm_instance(void* a)
 
 RIVE_API void* rive_sm_instance_at(void* a, int index)
 { return a ? static_cast<rive::ArtboardInstance*>(a)->stateMachineAt((size_t)index).release() : nullptr; }
+
+// по имени — nullptr, если в этом артборде нет стейт-машины с таким именем
+RIVE_API void* rive_sm_instance_named(void* a, const char* name)
+{
+    if (!a || !name) return nullptr;
+    return static_cast<rive::ArtboardInstance*>(a)->stateMachineNamed(name).release();
+}
 
 RIVE_API void rive_sm_destroy(void* s)
 { delete static_cast<rive::StateMachineInstance*>(s); }

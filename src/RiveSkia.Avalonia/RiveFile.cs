@@ -32,6 +32,30 @@ public sealed class RiveFile : IDisposable
         return ms.ToArray();
     }
 
+    // список артбордов файла и их стейт-машин — чтобы выбрать по имени, не подбирая вслепую
+    // (см. RiveControl(rivPath, artboard, stateMachine) / Artboard / StateMachine)
+    public IReadOnlyList<RiveArtboardInfo> GetArtboards()
+    {
+        int count = Native.rive_artboard_count(Handle);
+        var result = new RiveArtboardInfo[count];
+        var buf = new byte[256];
+        for (int i = 0; i < count; i++)
+        {
+            int len = Native.rive_artboard_name(Handle, i, buf, buf.Length);
+            var name = System.Text.Encoding.UTF8.GetString(buf, 0, Math.Min(len, buf.Length));
+
+            int smCount = Native.rive_state_machine_count(Handle, i);
+            var sms = new string[smCount];
+            for (int j = 0; j < smCount; j++)
+            {
+                int smLen = Native.rive_state_machine_name(Handle, i, j, buf, buf.Length);
+                sms[j] = System.Text.Encoding.UTF8.GetString(buf, 0, Math.Min(smLen, buf.Length));
+            }
+            result[i] = new RiveArtboardInfo(name, sms);
+        }
+        return result;
+    }
+
     public void Dispose()
     {
         if (Handle != IntPtr.Zero)

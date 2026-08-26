@@ -24,14 +24,26 @@ internal sealed class RiveScene : IDisposable
     SKCanvas _canvas;
     float _opacity = 1f;
 
-    public RiveScene(RiveFile file, bool ownsFile)
+    public RiveScene(RiveFile file, bool ownsFile) : this(file, ownsFile, null, null) { }
+
+    // artboardName/stateMachineName — null означает "по умолчанию" (нулевой артборд, его
+    // стейт-машина по умолчанию либо первая по индексу). Имя, которого нет в файле, — тихий
+    // no-op на уровне всей сцены: _artboard/_sm остаются IntPtr.Zero, а Advance/Render/входы
+    // и так уже проверяют это перед каждым обращением, так что ничего не рисуется и не падает.
+    public RiveScene(RiveFile file, bool ownsFile, string artboardName, string stateMachineName)
     {
         _file = file;
         _ownsFile = ownsFile;
 
-        _artboard = Native.rive_artboard_instance(_file.Handle, 0);
-        _sm = Native.rive_sm_instance(_artboard);
-        if (_sm == IntPtr.Zero) _sm = Native.rive_sm_instance_at(_artboard, 0);
+        _artboard = string.IsNullOrEmpty(artboardName)
+            ? Native.rive_artboard_instance(_file.Handle, 0)
+            : Native.rive_artboard_instance_named(_file.Handle, artboardName);
+
+        _sm = string.IsNullOrEmpty(stateMachineName)
+            ? Native.rive_sm_instance(_artboard)
+            : Native.rive_sm_instance_named(_artboard, stateMachineName);
+        if (_sm == IntPtr.Zero && string.IsNullOrEmpty(stateMachineName))
+            _sm = Native.rive_sm_instance_at(_artboard, 0);
 
         _cb = new Native.Callbacks
         {

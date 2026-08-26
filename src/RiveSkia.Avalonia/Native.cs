@@ -24,11 +24,18 @@ internal static class Native
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_file_load(byte[] b, int len);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_file_destroy(IntPtr f);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_artboard_instance(IntPtr f, int i);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_artboard_instance_named(IntPtr f, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_artboard_instance_destroy(IntPtr a);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_artboard_advance(IntPtr a, float dt);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_sm_instance(IntPtr a);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_sm_instance_at(IntPtr a, int index);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern IntPtr rive_sm_instance_named(IntPtr a, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_sm_destroy(IntPtr s);
+
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_artboard_count(IntPtr f);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_artboard_name(IntPtr f, int i, byte[] buf, int cap);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_state_machine_count(IntPtr f, int i);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_state_machine_name(IntPtr f, int i, int j, byte[] buf, int cap);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_sm_advance(IntPtr s, float dt);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_artboard_draw_fit(IntPtr a, IntPtr ctx, float w, float h);
 

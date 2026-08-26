@@ -34,7 +34,7 @@ Rive-рантайм для Avalonia, рисующий через SkiaSharp.
 
 Пакет не опубликован на nuget.org, поэтому подключается из локальной папки.
 
-1. Положи `RiveSkia.Avalonia.0.5.0.nupkg` в любую папку, например `C:\nuget-local\`.
+1. Положи `RiveSkia.Avalonia.0.6.0.nupkg` в любую папку, например `C:\nuget-local\`.
 
 2. В своём проекте:
 
@@ -105,7 +105,7 @@ dotnet run
 | Как контент вписывается в `Width`×`Height` | Всегда по правилу `contain` с центрированием (как `object-fit: contain` в CSS): если пропорции контрола не совпадают с пропорциями артборда — по одной из осей будут пустые поля, а не растяжение или обрезка | — |
 | Входы стейт-машины (`Bool`/`Number`/`Trigger`) | Из **самого `.riv` файла** — их имена, типы и то, что они внутри анимации делают, задал дизайнер в редакторе Rive, на вкладке **State Machine → Inputs**. Библиотека не изобретает новые и не может — только читает/устанавливает то, что уже есть в файле | `control.GetInputs()` — вернёт реальный список из загруженного файла, не нужно смотреть в редактор или спрашивать дизайнера |
 | Реакция на клик/наведение мыши | Тоже из файла — срабатывает, только если дизайнер добавил в редакторе Rive «Listener» (State Machine → Listeners) на это событие. Библиотека сама координаты не придумывает: пересчитывает пиксели контрола в локальную систему артборда и просто передаёт их дальше | Если клики «не работают» — вероятно, в файле просто нет листенера на этот элемент; проверь эталонным плеером (см. «Особенности → Что пока нет») |
-| Какой артборд/какая стейт-машина показывается | Тоже часть файла — библиотека сейчас всегда берёт артборд с индексом `0` и его стейт-машину по умолчанию (или первую по индексу, если «по умолчанию» не отмечена в редакторе). Выбор по имени/индексу пока не реализован (см. «Планы») | — |
+| Какой артборд/какая стейт-машина показывается | Тоже часть файла — имена задал дизайнер на вкладках Artboards/State Machine в редакторе Rive. По умолчанию — нулевой артборд и его стейт-машина по умолчанию (или первая по индексу) | `RiveFile.GetArtboards()` — реальный список артбордов файла и стейт-машин каждого; выбираются через `Artboard`/`StateMachine` |
 
 Иначе говоря: **`rivPath`, `Width`, `Height` — твои**, ты их задаёшь и полностью контролируешь; **входы, листенеры, артборд/стейт-машина — файла**, библиотека их только показывает и дёргает по имени, но не создаёт с нуля.
 
@@ -117,12 +117,16 @@ dotnet run
 public class RiveControl : Control, IDisposable
 {
     public RiveControl();
-    public RiveControl(string rivPath);
-    public RiveControl(RiveFile file);
+    public RiveControl(string rivPath, string artboard = null, string stateMachine = null);
+    public RiveControl(RiveFile file, string artboard = null, string stateMachine = null);
     public RiveControl(RiveSharedInstance shared);
 
     public static readonly StyledProperty<string> SourceProperty;
     public string Source { get; set; }
+    public static readonly StyledProperty<string> ArtboardProperty;
+    public string Artboard { get; set; }
+    public static readonly StyledProperty<string> StateMachineProperty;
+    public string StateMachine { get; set; }
 
     public void SetInputBool(string name, bool value);
     public bool GetInputBool(string name);
@@ -165,6 +169,16 @@ control.Source = @"C:\path\to\other.riv"; // сменить показываем
 
 `RiveControl(string rivPath)` — сахар над `Source`, оставлен для краткости и обратной совместимости. Смена `Source` освобождает предыдущий загруженный файл сама — течи не возникает.
 
+По умолчанию контрол берёт нулевой артборд и его стейт-машину по умолчанию (или первую по индексу). `Artboard`/`StateMachine` — тоже `StyledProperty`, задают выбор по имени, как назвал их дизайнер в редакторе Rive на вкладках Artboards/State Machine; меняются на лету так же, как `Source` (при смене любого из трёх файл перечитывается заново с учётом всех текущих значений). Имя, которого нет в файле, — тихий no-op: ничего не рисуется и не падает, как и с несуществующим именем входа. Не гадать имена помогает `RiveFile.GetArtboards()`:
+
+```csharp
+using var file = new RiveFile(path);
+foreach (var ab in file.GetArtboards())
+    Console.WriteLine($"{ab.Name}: [{string.Join(", ", ab.StateMachineNames)}]");
+
+var control = new RiveControl(path, artboard: "Goose");
+```
+
 Указатель мыши (наведение, нажатие, отпускание, уход курсора) автоматически прокидывается в стейт-машину — если файл содержит слушатели («listeners») на эти события, они сработают сами, без дополнительного кода. Координаты корректно пересчитываются из пикселей контрола в локальную систему артборда с учётом вписывания `contain`.
 
 Входы стейт-машины (`Boolean`/`Number`/`Trigger`, заданные в редакторе Rive на вкладке State Machine) управляются по имени через `SetInputBool`/`SetInputNumber`/`FireInputTrigger`. Обращение к несуществующему имени — не исключение, а тихий no-op. Сами имена не нужно подбирать вслепую или смотреть в редакторе — `GetInputs()` возвращает список того, что реально есть в загруженном файле:
@@ -188,8 +202,11 @@ foreach (var input in control.GetInputs())
 public sealed class RiveFile : IDisposable
 {
     public RiveFile(string rivPath);
+    public IReadOnlyList<RiveArtboardInfo> GetArtboards();
     public void Dispose();
 }
+
+public readonly record struct RiveArtboardInfo(string Name, IReadOnlyList<string> StateMachineNames);
 ```
 
 Распарсенный `.riv`-файл, который можно переиспользовать в нескольких `RiveControl` — полезно, когда одна и та же анимация показывается много раз (например, иконка в списке): файл читается и парсится один раз, а не при создании каждого контрола.
@@ -207,8 +224,8 @@ var b = new RiveControl(file); // тот же распарсенный файл,
 ```csharp
 public sealed class RiveSharedInstance : IDisposable
 {
-    public RiveSharedInstance(string rivPath);
-    public RiveSharedInstance(RiveFile file);
+    public RiveSharedInstance(string rivPath, string artboard = null, string stateMachine = null);
+    public RiveSharedInstance(RiveFile file, string artboard = null, string stateMachine = null);
 
     public IReadOnlyList<RiveInput> GetInputs();
     public void Dispose();
@@ -250,6 +267,7 @@ for (int i = 0; i < 50; i++)
 - Расшаривание одного живого артборда/стейт-машины и кэш отрисованного кадра между несколькими контролами (`RiveSharedInstance`) — для множества одинаковых неинтерактивных копий
 - Ручной контроль частоты обновления и полная пауза отдельного контрола (`Pause`/`Resume`/`RenderEveryNthFrame`) — для сцен с десятками независимых контролов, часть которых сейчас не важна
 - `Source` как `StyledProperty` (биндится, меняется на лету) и файлы, встроенные в сборку через `avares://`
+- Выбор артборда и стейт-машины по имени (`Artboard`/`StateMachine`) и их перечисление (`RiveFile.GetArtboards()`) — не нужно подбирать вслепую
 
 ### Что пока нет
 
@@ -258,7 +276,6 @@ for (int i = 0; i < 50; i++)
 | Растровые изображения | не отрисовываются |
 | Меши и кости | не отрисовываются |
 | Режимы наложения | всё рисуется как `SrcOver` |
-| Выбор артборда и стейт-машины | всегда нулевой / по умолчанию |
 
 Проверить конкретный файл до интеграции удобно эталонным плеером из rive-runtime — он работает на том же ядре:
 
@@ -350,7 +367,7 @@ dotnet pack -c Release
 Проверка, что нативная часть упакована:
 
 ```powershell
-Copy-Item bin\Release\RiveSkia.Avalonia.0.5.0.nupkg $env:TEMP\pkg.zip -Force
+Copy-Item bin\Release\RiveSkia.Avalonia.0.6.0.nupkg $env:TEMP\pkg.zip -Force
 Expand-Archive $env:TEMP\pkg.zip -DestinationPath $env:TEMP\pkg -Force
 dir $env:TEMP\pkg\runtimes\win-x64\native
 ```
@@ -359,7 +376,6 @@ dir $env:TEMP\pkg\runtimes\win-x64\native
 
 ## Планы
 
-- Выбор артборда и стейт-машины по имени/индексу
 - Режимы наложения
 - Растровые изображения и меши
 - Колбэк на удаление геометрии из натива — чтобы кэш путей не рос там, где ядро создаёт новые объекты вместо переиспользования старых

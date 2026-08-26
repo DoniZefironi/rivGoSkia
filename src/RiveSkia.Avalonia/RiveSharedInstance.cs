@@ -36,12 +36,14 @@ public sealed class RiveSharedInstance : IDisposable
 
     bool _disposed;
 
-    public RiveSharedInstance(string rivPath) : this(new RiveFile(rivPath), ownsFile: true) { }
-    public RiveSharedInstance(RiveFile file) : this(file, ownsFile: false) { }
+    public RiveSharedInstance(string rivPath, string artboard = null, string stateMachine = null)
+        : this(new RiveFile(rivPath), ownsFile: true, artboard, stateMachine) { }
+    public RiveSharedInstance(RiveFile file, string artboard = null, string stateMachine = null)
+        : this(file, ownsFile: false, artboard, stateMachine) { }
 
-    RiveSharedInstance(RiveFile file, bool ownsFile)
+    RiveSharedInstance(RiveFile file, bool ownsFile, string artboardName, string stateMachineName)
     {
-        Scene = new RiveScene(file, ownsFile);
+        Scene = new RiveScene(file, ownsFile, artboardName, stateMachineName);
         _timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(4) };
         _timer.Tick += OnTick;
         _timer.Start();
