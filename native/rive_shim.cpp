@@ -9,6 +9,7 @@
 #include "rive/math/raw_path.hpp"
 #include "rive/layout.hpp"
 #include "utils/no_op_factory.hpp"
+#include "rive/decoders/bitmap_decoder.hpp"
 #include <cstring>
 #include <unordered_map>
 #include <vector>
@@ -22,15 +23,19 @@ int g_nextId = 1;
 struct ShimPath;
 struct ShimPaint;
 struct ShimShader;
+struct ShimImage;
 
 std::unordered_map<int, ShimPath*> g_paths;
 std::unordered_map<int, ShimPaint*> g_paints;
 std::unordered_map<int, ShimShader*> g_shaders;
+std::unordered_map<int, ShimImage*> g_images;
 
 // вызывается из ~ShimPath, чтобы C# мог убрать свою кэш-запись (SKPath) — без этого кэш
 // путей в RiveScene растёт бесконечно, если ядро заводит новый объект геометрии вместо
 // переиспользования старого через rewind() (см. README → Известные особенности)
 void (*g_onPathDestroyed)(int) = nullptr;
+// то же самое, но для декодированных изображений (см. ShimImage)
+void (*g_onImageDestroyed)(int) = nullptr;
 
 struct ShimShader : public rive::RenderShader
 {
@@ -42,6 +47,28 @@ struct ShimShader : public rive::RenderShader
 
     ShimShader() : id(g_nextId++) {}
     ~ShimShader() override { g_shaders.erase(id); }
+};
+
+// декодированное растровое изображение (PNG/JPEG/WEBP, встроенное в .riv) — декодирует сразу
+// здесь, через уже слинкованный rive_decoders.lib, а не в C#: тогда управляемой стороне не
+// нужен собственный декодер форматов, только готовые RGBA-пиксели фиксированного размера
+struct ShimImage : public rive::RenderImage
+{
+    int id;
+    std::vector<uint8_t> pixels; // RGBA8888, без предумножения альфы; width*height*4 байт
+
+    explicit ShimImage(std::unique_ptr<Bitmap> bmp) : id(g_nextId++)
+    {
+        bmp->pixelFormat(Bitmap::PixelFormat::RGBA);
+        m_Width = (int)bmp->width();
+        m_Height = (int)bmp->height();
+        pixels.assign(bmp->bytes(), bmp->bytes() + bmp->numBytes());
+    }
+    ~ShimImage() override
+    {
+        if (g_onImageDestroyed) g_onImageDestroyed(id);
+        g_images.erase(id);
+    }
 };
 
 struct ShimPath : public rive::RenderPath
@@ -112,6 +139,7 @@ struct Callbacks
     void (*clipPath)(void*, int);
     void (*drawPath)(void*, int, int);
     void (*modulateOpacity)(void*, float);
+    void (*drawImage)(void*, int, float);
 };
 Callbacks g_cb{};
 
@@ -128,8 +156,13 @@ struct ShimRenderer : public rive::Renderer
     void drawPath(rive::RenderPath* p, rive::RenderPaint* pa) override
     { if (g_cb.drawPath) g_cb.drawPath(ctx, static_cast<ShimPath*>(p)->id,
                                        static_cast<ShimPaint*>(pa)->id); }
-    void drawImage(const rive::RenderImage*, rive::ImageSampler,
-                   rive::BlendMode, float) override {}
+    // sampler (wrap/фильтрация) и blendMode пока не пробрасываются — рисуется как SrcOver
+    // с билинейной фильтрацией по умолчанию (см. README → Что пока нет → Режимы наложения)
+    void drawImage(const rive::RenderImage* img, rive::ImageSampler,
+                   rive::BlendMode, float opacity) override
+    {
+        if (g_cb.drawImage) g_cb.drawImage(ctx, static_cast<const ShimImage*>(img)->id, opacity);
+    }
     void drawImageMesh(const rive::RenderImage*, rive::ImageSampler,
                        rive::rcp<rive::RenderBuffer>, rive::rcp<rive::RenderBuffer>,
                        rive::rcp<rive::RenderBuffer>, uint32_t, uint32_t,
@@ -180,6 +213,15 @@ struct ShimFactory : public rive::NoOpFactory
         s->stops.assign(stops, stops + count);
         g_shaders[s->id] = s.get();
         return s;
+    }
+
+    rive::rcp<rive::RenderImage> decodeImage(rive::Span<const uint8_t> bytes) override
+    {
+        auto bmp = Bitmap::decode(bytes.data(), bytes.size());
+        if (!bmp) return nullptr; // неподдерживаемый/битый формат — как и остальной API, тихо
+        auto img = rive::make_rcp<ShimImage>(std::move(bmp));
+        g_images[img->id] = img.get();
+        return img;
     }
 };
 
@@ -462,3 +504,22 @@ RIVE_API void rive_shader_stops(int id, unsigned int* colors, float* stops)
     memcpy(colors, it->second->colors.data(), it->second->colors.size() * 4);
     memcpy(stops, it->second->stops.data(), it->second->stops.size() * 4);
 }
+
+// ---------- растровые изображения ----------
+// Декодируется один раз при импорте файла (см. ShimFactory::decodeImage), а не по кадру —
+// в отличие от путей, пиксели изображения не меняются, поэтому версии не нужны: C# читает
+// их один раз через rive_image_copy и кэширует как SKImage до самого ~ShimImage.
+RIVE_API void rive_image_info(int id, int* width, int* height)
+{
+    auto it = g_images.find(id);
+    if (it == g_images.end()) { *width = 0; *height = 0; return; }
+    *width = it->second->width();
+    *height = it->second->height();
+}
+RIVE_API void rive_image_copy(int id, uint8_t* pixels)
+{
+    auto it = g_images.find(id);
+    if (it == g_images.end()) return;
+    memcpy(pixels, it->second->pixels.data(), it->second->pixels.size());
+}
+RIVE_API void rive_set_image_destroyed_callback(void (*cb)(int)) { g_onImageDestroyed = cb; }
