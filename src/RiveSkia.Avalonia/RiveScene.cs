@@ -7,6 +7,8 @@ internal sealed class RiveScene : IDisposable
     readonly bool _ownsFile; // true — файл создан этой сценой и её же и разрушается; false — общий, чужой
     readonly IntPtr _artboard, _sm;
     readonly Dictionary<int, PathEntry> _paths = new();
+    // изображения декодируются один раз (не по кадру, как пути) и живут в кэше до ~ShimImage
+    readonly Dictionary<int, SKImage> _images = new();
 
     // Держит и SKPath, и переиспользуемые буферы под сырые verb/point данные — на кэш-промахе
     // (частый случай для анимированной геометрии) буферы просто дозаполняются заново, а не
@@ -59,6 +61,7 @@ internal sealed class RiveScene : IDisposable
             clipPath = (_, id) => _canvas.ClipPath(GetPath(id), SKClipOperation.Intersect, true),
             drawPath = (_, pid, paintId) => Draw(pid, paintId),
             modulateOpacity = (_, o) => _opacity *= o,
+            drawImage = (_, imgId, opacity) => DrawImage(imgId, opacity),
         };
     }
 
@@ -83,7 +86,11 @@ internal sealed class RiveScene : IDisposable
     static readonly Dictionary<int, RiveScene> s_pathOwners = new();
     static readonly Native.IdCallback s_onPathDestroyed = OnPathDestroyed; // поле — держит делегат от GC
 
-    static RiveScene() { Native.rive_set_path_destroyed_callback(s_onPathDestroyed); }
+    static RiveScene()
+    {
+        Native.rive_set_path_destroyed_callback(s_onPathDestroyed);
+        Native.rive_set_image_destroyed_callback(s_onImageDestroyed);
+    }
 
     static void OnPathDestroyed(int id)
     {
@@ -91,6 +98,21 @@ internal sealed class RiveScene : IDisposable
         {
             if (!s_pathOwners.Remove(id, out var scene)) return;
             if (scene._paths.Remove(id, out var entry)) entry.Path?.Dispose();
+        }
+    }
+
+    // тот же приём, что и для путей: изображение декодируется один раз при импорте файла,
+    // а не по кадру, но всё равно может быть разрушено (например, файл-владелец выгружен) в
+    // произвольный момент — без этого колбэка кэшированный SKImage повис бы в _images навсегда
+    static readonly Dictionary<int, RiveScene> s_imageOwners = new();
+    static readonly Native.IdCallback s_onImageDestroyed = OnImageDestroyed;
+
+    static void OnImageDestroyed(int id)
+    {
+        lock (s_sync)
+        {
+            if (!s_imageOwners.Remove(id, out var scene)) return;
+            if (scene._images.Remove(id, out var img)) img?.Dispose();
         }
     }
 
@@ -311,6 +333,41 @@ internal sealed class RiveScene : IDisposable
         _canvas.DrawPath(GetPath(pid), paint);
     }
 
+    // изображения декодированы на нативной стороне один раз при импорте (см. ShimImage) —
+    // в отличие от путей, пиксели не меняются кадр к кадру, поэтому версия не нужна: раз
+    // построенный SKImage переиспользуется, пока сама сцена или файл не будут разрушены
+    SKImage GetImage(int id)
+    {
+        if (_images.TryGetValue(id, out var cached)) return cached;
+
+        Native.rive_image_info(id, out int w, out int h);
+        if (w <= 0 || h <= 0) return null;
+
+        var pixels = new byte[w * h * 4];
+        Native.rive_image_copy(id, pixels);
+        var info = new SKImageInfo(w, h, SKColorType.Rgba8888, SKAlphaType.Unpremul);
+        var image = SKImage.FromPixelCopy(info, pixels);
+
+        _images[id] = image;
+        // GetImage зовётся только из drawImage-колбэка внутри Render(), т.е. уже под s_sync
+        s_imageOwners[id] = this;
+        return image;
+    }
+
+    // без w/h ImageSampler'а (wrap/фильтрация) и blendMode — рисуется как обычный SrcOver-блит
+    // на прямоугольник (0,0)-(width,height) в текущей системе координат: этот прямоугольник и
+    // трансформацию уже подготовил вызывающий код в ядре Rive (Image::draw), drawImage сам
+    // ничего не подгоняет под размер контрола — контролю (см. Fit::contain) в трансформации
+    void DrawImage(int id, float opacity)
+    {
+        var img = GetImage(id);
+        if (img == null) return;
+
+        byte a = (byte)Math.Clamp(255 * opacity * _opacity, 0, 255);
+        using var paint = new SKPaint { Color = new SKColor(255, 255, 255, a) };
+        _canvas.DrawImage(img, new SKRect(0, 0, img.Width, img.Height), paint);
+    }
+
     public void Dispose()
     {
         // Dispose тоже под общим локом: деструкторы ShimPath/ShimPaint/ShimShader на нативной
@@ -327,6 +384,12 @@ internal sealed class RiveScene : IDisposable
                 s_pathOwners.Remove(id);
             }
             _paths.Clear();
+            foreach (var (id, img) in _images)
+            {
+                img?.Dispose();
+                s_imageOwners.Remove(id);
+            }
+            _images.Clear();
             if (_sm != IntPtr.Zero) Native.rive_sm_destroy(_sm);
             if (_artboard != IntPtr.Zero) Native.rive_artboard_instance_destroy(_artboard);
             if (_ownsFile) _file.Dispose();

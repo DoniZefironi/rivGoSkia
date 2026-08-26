@@ -18,6 +18,7 @@ $defines = @(
 
 $includes = @(
   "/I","$rive\include", "/I","$rive\dependencies", "/I","$rive\renderer\include",
+  "/I","$rive\decoders\include",
   "/I","$deps\rive-app_harfbuzz_rive_13.1.1\src",
   "/I","$deps\Tehreer_SheenBidi_v2.6\Headers",
   "/I","$deps\rive-app_miniaudio_rive_changes_5",

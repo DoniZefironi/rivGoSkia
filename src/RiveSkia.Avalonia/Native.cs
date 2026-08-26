@@ -9,6 +9,7 @@ internal static class Native
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void IntFn(IntPtr ctx, int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void Int2Fn(IntPtr ctx, int a, int b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void FloatFn(IntPtr ctx, float f);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void IntFloatFn(IntPtr ctx, int a, float f);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct Callbacks
@@ -18,6 +19,7 @@ internal static class Native
         public IntFn clipPath;
         public Int2Fn drawPath;
         public FloatFn modulateOpacity;
+        public IntFloatFn drawImage;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void IdCallback(int id);
@@ -61,4 +63,8 @@ internal static class Native
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_paint_get(int id, out int style, out uint color, out float th, out int join, out int cap, out int blend, out float feather, out int shaderId);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern int rive_shader_info(int id, out int type, out float a, out float b, out float c, out float d);
     [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_shader_stops(int id, uint[] colors, float[] stops);
+
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_image_info(int id, out int width, out int height);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_image_copy(int id, byte[] pixels);
+    [DllImport(L, CallingConvention = CallingConvention.Cdecl)] internal static extern void rive_set_image_destroyed_callback(IdCallback cb);
 }
