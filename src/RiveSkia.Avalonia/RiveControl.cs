@@ -24,9 +24,31 @@ public class RiveControl : Control, IDisposable
         set => SetValue(SourceProperty, value);
     }
 
+    // имя артборда/стейт-машины, как задал дизайнер в редакторе Rive (вкладки Artboards и
+    // State Machine) — null означает "по умолчанию" (нулевой артборд, его стейт-машина по
+    // умолчанию либо первая по индексу). Не нужно подбирать вслепую — RiveFile.GetArtboards()
+    // возвращает то, что реально есть в файле. Меняются на лету так же, как Source.
+    public static readonly StyledProperty<string> ArtboardProperty =
+        AvaloniaProperty.Register<RiveControl, string>(nameof(Artboard));
+    public static readonly StyledProperty<string> StateMachineProperty =
+        AvaloniaProperty.Register<RiveControl, string>(nameof(StateMachine));
+
+    public string Artboard
+    {
+        get => GetValue(ArtboardProperty);
+        set => SetValue(ArtboardProperty, value);
+    }
+    public string StateMachine
+    {
+        get => GetValue(StateMachineProperty);
+        set => SetValue(StateMachineProperty, value);
+    }
+
     static RiveControl()
     {
-        SourceProperty.Changed.AddClassHandler<RiveControl>((c, e) => c.OnSourceChanged(e));
+        SourceProperty.Changed.AddClassHandler<RiveControl>((c, e) => c.OnSourceChanged());
+        ArtboardProperty.Changed.AddClassHandler<RiveControl>((c, e) => c.OnSourceChanged());
+        StateMachineProperty.Changed.AddClassHandler<RiveControl>((c, e) => c.OnSourceChanged());
     }
 
     // сцена (владеет нативными ресурсами и логикой отрисовки) — null, когда контрол смотрит
@@ -102,12 +124,20 @@ public class RiveControl : Control, IDisposable
         _timer.Start();
     }
 
-    // загружает файл самостоятельно и владеет им единолично — сахар над Source
-    public RiveControl(string rivPath) : this() { Source = rivPath; }
+    // загружает файл самостоятельно и владеет им единолично — сахар над Source/Artboard/StateMachine
+    public RiveControl(string rivPath, string artboard = null, string stateMachine = null) : this()
+    {
+        Artboard = artboard;
+        StateMachine = stateMachine;
+        Source = rivPath; // последним — иначе перечитает файл ещё раз при смене Artboard/StateMachine
+    }
 
     // переиспользует уже загруженный файл — не парсит .riv заново, полезно при множестве
     // экземпляров одной и той же анимации (не владеет им, не разрушает при Dispose)
-    public RiveControl(RiveFile file) : this() { _scene = new RiveScene(file, ownsFile: false); }
+    public RiveControl(RiveFile file, string artboard = null, string stateMachine = null) : this()
+    {
+        _scene = new RiveScene(file, ownsFile: false, artboard, stateMachine);
+    }
 
     // делит один живой артборд/стейт-машину с другими такими же RiveControl вместо того,
     // чтобы заводить свой — сам не продвигает время (это уже делает таймер самого
@@ -117,14 +147,17 @@ public class RiveControl : Control, IDisposable
     // перестают быть независимыми — указатель/входы бьют по общей стейт-машине.
     public RiveControl(RiveSharedInstance shared) : this() { _shared = shared; }
 
-    // (пере)загружает файл, на который сейчас указывает Source — старая сцена (если была)
-    // освобождается, чтобы не оставить висящий нативный артборд при смене файла на лету
-    void OnSourceChanged(AvaloniaPropertyChangedEventArgs e)
+    // (пере)загружает файл, на который сейчас указывает Source, с учётом текущих Artboard/
+    // StateMachine — старая сцена (если была) освобождается, чтобы не оставить висящий
+    // нативный артборд при смене файла/артборда/стейт-машины на лету
+    void OnSourceChanged()
     {
         if (_disposed) return;
         _scene?.Dispose();
-        var path = e.NewValue as string;
-        _scene = string.IsNullOrEmpty(path) ? null : new RiveScene(new RiveFile(path), ownsFile: true);
+        var path = Source;
+        _scene = string.IsNullOrEmpty(path)
+            ? null
+            : new RiveScene(new RiveFile(path), ownsFile: true, Artboard, StateMachine);
         _accumulator = 0;
         _last = _clock.Elapsed;
     }
