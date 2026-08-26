@@ -61,7 +61,7 @@ internal sealed class RiveScene : IDisposable
             clipPath = (_, id) => _canvas.ClipPath(GetPath(id), SKClipOperation.Intersect, true),
             drawPath = (_, pid, paintId) => Draw(pid, paintId),
             modulateOpacity = (_, o) => _opacity *= o,
-            drawImage = (_, imgId, opacity) => DrawImage(imgId, opacity),
+            drawImage = (_, imgId, blend, opacity) => DrawImage(imgId, blend, opacity),
         };
     }
 
@@ -298,6 +298,10 @@ internal sealed class RiveScene : IDisposable
             StrokeWidth = thickness,
             StrokeJoin = (SKStrokeJoin)join,
             StrokeCap = (SKStrokeCap)cap,
+            // числовые значения rive::BlendMode и SKBlendMode совпадают поэлементно (общий
+            // источник — стандартная нумерация W3C compositing/CSS blend-mode) — прямое
+            // приведение типа, без таблицы трансляции
+            BlendMode = (SKBlendMode)blend,
         };
 
         if (feather > 0f)
@@ -354,17 +358,16 @@ internal sealed class RiveScene : IDisposable
         return image;
     }
 
-    // без w/h ImageSampler'а (wrap/фильтрация) и blendMode — рисуется как обычный SrcOver-блит
-    // на прямоугольник (0,0)-(width,height) в текущей системе координат: этот прямоугольник и
-    // трансформацию уже подготовил вызывающий код в ядре Rive (Image::draw), drawImage сам
-    // ничего не подгоняет под размер контрола — контролю (см. Fit::contain) в трансформации
-    void DrawImage(int id, float opacity)
+    // без ImageSampler'а (wrap/фильтрация) — рисуется на прямоугольник (0,0)-(width,height) в
+    // текущей системе координат: этот прямоугольник и трансформацию уже подготовил вызывающий
+    // код в ядре Rive (Image::draw), drawImage сам ничего не подгоняет под размер контрола
+    void DrawImage(int id, int blend, float opacity)
     {
         var img = GetImage(id);
         if (img == null) return;
 
         byte a = (byte)Math.Clamp(255 * opacity * _opacity, 0, 255);
-        using var paint = new SKPaint { Color = new SKColor(255, 255, 255, a) };
+        using var paint = new SKPaint { Color = new SKColor(255, 255, 255, a), BlendMode = (SKBlendMode)blend };
         _canvas.DrawImage(img, new SKRect(0, 0, img.Width, img.Height), paint);
     }
 

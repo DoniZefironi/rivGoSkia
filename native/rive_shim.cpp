@@ -139,7 +139,7 @@ struct Callbacks
     void (*clipPath)(void*, int);
     void (*drawPath)(void*, int, int);
     void (*modulateOpacity)(void*, float);
-    void (*drawImage)(void*, int, float);
+    void (*drawImage)(void*, int, int, float);
 };
 Callbacks g_cb{};
 
@@ -156,12 +156,13 @@ struct ShimRenderer : public rive::Renderer
     void drawPath(rive::RenderPath* p, rive::RenderPaint* pa) override
     { if (g_cb.drawPath) g_cb.drawPath(ctx, static_cast<ShimPath*>(p)->id,
                                        static_cast<ShimPaint*>(pa)->id); }
-    // sampler (wrap/фильтрация) и blendMode пока не пробрасываются — рисуется как SrcOver
-    // с билинейной фильтрацией по умолчанию (см. README → Что пока нет → Режимы наложения)
+    // sampler (wrap/фильтрация) пока не пробрасывается — рисуется с билинейной фильтрацией
+    // по умолчанию (см. README → Что пока нет)
     void drawImage(const rive::RenderImage* img, rive::ImageSampler,
-                   rive::BlendMode, float opacity) override
+                   rive::BlendMode blend, float opacity) override
     {
-        if (g_cb.drawImage) g_cb.drawImage(ctx, static_cast<const ShimImage*>(img)->id, opacity);
+        if (g_cb.drawImage)
+            g_cb.drawImage(ctx, static_cast<const ShimImage*>(img)->id, (int)blend, opacity);
     }
     void drawImageMesh(const rive::RenderImage*, rive::ImageSampler,
                        rive::rcp<rive::RenderBuffer>, rive::rcp<rive::RenderBuffer>,

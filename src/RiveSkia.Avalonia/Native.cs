@@ -9,7 +9,7 @@ internal static class Native
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void IntFn(IntPtr ctx, int a);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void Int2Fn(IntPtr ctx, int a, int b);
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void FloatFn(IntPtr ctx, float f);
-    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void IntFloatFn(IntPtr ctx, int a, float f);
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void Int2FloatFn(IntPtr ctx, int a, int b, float f);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct Callbacks
@@ -19,7 +19,7 @@ internal static class Native
         public IntFn clipPath;
         public Int2Fn drawPath;
         public FloatFn modulateOpacity;
-        public IntFloatFn drawImage;
+        public Int2FloatFn drawImage;
     }
 
     [UnmanagedFunctionPointer(CallingConvention.Cdecl)] internal delegate void IdCallback(int id);
